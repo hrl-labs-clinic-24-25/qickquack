@@ -1,4 +1,8 @@
+from qick import SocIp
+import time
+
 class AxiPvpGen(SocIp):
+    """Control the axi_pvp_gen_v7_x IP"""
     
     # PVP Gen Control Registers
     
@@ -32,7 +36,7 @@ class AxiPvpGen(SocIp):
     # NUM_DIMS_REG: 3 bit
     
     
-    bindto = ['user.org:user:axi_pvp_gen_v7:1.0']
+    bindto = ['user.org:user:axi_pvp_gen_v7:4.0']
     
     def __init__(self, description, **kwargs):
         super().__init__(description)
@@ -102,12 +106,17 @@ class AxiPvpGen(SocIp):
         self.PVP_WIDTH_REG = 256
         self.NUM_DIMS_REG = 0 
         
-        # useful dictionaries
-        start_regs = {'0': START_VAL_0_REG, '1': START_VAL_1_REG, '2': START_VAL_2_REG, '3': START_VAL_3_REG}
-        step_size_regs = {'0': STEP_SIZE_0_REG, '1': STEP_SIZE_1_REG, '2': STEP_SIZE_2_REG, '3': STEP_SIZE_3_REG}
-        demux_regs = {'0': DEMUX_0_REG, '1': DEMUX_1_REG, '2': DEMUX_2_REG, '3': DEMUX_3_REG}
-        group_regs = {'0': DAC_0_GROUP_REG, '1': DAC_1_GROUP_REG, '2': DAC_2_GROUP_REG, '3': DAC_3_GROUP_REG}
         
+    # useful dictionaries
+    start_regs = {'0': 'START_VAL_0_REG', '1': 'START_VAL_1_REG', '2': 'START_VAL_2_REG', '3': 'START_VAL_3_REG'}
+    step_size_regs = {'0': 'STEP_SIZE_0_REG', '1': 'STEP_SIZE_1_REG', '2': 'STEP_SIZE_2_REG', '3': 'STEP_SIZE_3_REG'}
+    demux_regs = {'0': 'DEMUX_0_REG', '1': 'DEMUX_1_REG', '2': 'DEMUX_2_REG', '3': 'DEMUX_3_REG'}
+    group_regs = {'0': 'DAC_0_GROUP_REG', '1': 'DAC_1_GROUP_REG', '2': 'DAC_2_GROUP_REG', '3': 'DAC_3_GROUP_REG'}
+
+    # ################################
+    # Methods
+    # ################################
+   
         
     def check_lock(self, registerName = "<name of locked register>"):
         if (self.CTRL_REG & 0b1 == 1):
@@ -123,8 +132,8 @@ class AxiPvpGen(SocIp):
         '''helper method for any method that has four available axes'''
         
         if axis in axis_reg_dict:
-            reg = axis_reg_dict[axis]
-            self.reg = val
+            reg_str = axis_reg_dict[axis]
+            setattr(self, reg_str, val)
 
         else:
             raise ValueError("No valid axis was specified. Valid axis arguments are '0', '1', '2', '3'")
@@ -132,17 +141,20 @@ class AxiPvpGen(SocIp):
     def set_start(self, axis = '', start_val = 0b00):
         '''method to set start val 
             (note that we want a method for this because we don't want to worry about registers outside this class)'''
-        
+        start_regs = {'0': 'START_VAL_0_REG', '1': 'START_VAL_1_REG', '2': 'START_VAL_2_REG', '3': 'START_VAL_3_REG'}
         self.check_lock("Start values")
         self.set_any_axis(axis = axis, axis_reg_dict = start_regs, val = start_val)
     
     def set_step_size(self, axis = '', step_size = 0):
-        '''sets size of step (in Volts??)'''
+        '''sets size of step (in Volts)'''
+        step_size_regs = {'0': 'STEP_SIZE_0_REG', '1': 'STEP_SIZE_1_REG', '2': 'STEP_SIZE_2_REG', '3': 'STEP_SIZE_3_REG'}
         self.check_lock("step size")
         self.set_any_axis(axis = axis, axis_reg_dict = step_size_regs, val = step_size)
             
-    def set_demux(self, axis = '', demux = 0): 
+    def set_demux(self, axis = '', demux = 0):
+        """Set demux value for a given axis"""
         self.check_lock("Demux values")
+        demux_regs = {'0': 'DEMUX_0_REG', '1': 'DEMUX_1_REG', '2': 'DEMUX_2_REG', '3': 'DEMUX_3_REG'}
         
         #note to self: do we specify demux value or ask for board num and dac num?
         if (demux >= 0 and demux < 32):
@@ -151,7 +163,8 @@ class AxiPvpGen(SocIp):
             raise ValueError("Demux value must be in the range 0-31 inclusive")
     
     def set_group(self, axis = '', group = 0):
-        '''sets with which group a particular DAC should update'''
+        '''Set with which group a particular DAC should update'''
+        group_regs = {'0': 'DAC_0_GROUP_REG', '1': 'DAC_1_GROUP_REG', '2': 'DAC_2_GROUP_REG', '3': 'DAC_3_GROUP_REG'}
         self.check_lock("groups")
         self.set_any_axis(axis = axis, axis_reg_dict = group_regs, val = group)
         
@@ -159,6 +172,7 @@ class AxiPvpGen(SocIp):
     #the next five are ctrl reg manipulating methods
     
     def set_ldac(self, ldac = 1):
+        """Toggle the value of the LDAC pin, if in mode 3"""
         #check if mode allows for manual control
         if (self.MODE_REG == 3):
             #clear bit and set it
@@ -170,46 +184,58 @@ class AxiPvpGen(SocIp):
             print("wrong mode (need to be in mode 3 to change ldac manually)")
             
     def set_clr(self, clr = 1):
+        """Clear all DACs via CLRN pin"""
         #WARNING THIS WILL  NOT STOP YOU FROM CLEARING EVEN IN THE MIDDLE OF A PVP PLOT
         self.CTRL_REG &= 0b1011
         self.CTRL_REG |= (clr << 2)
         
     def set_reset(self, resetn = 1):
+        """Reset all DACs via RSTN pin"""
         #WARNING THIS WILL  NOT STOP YOU FROM RESETTING EVEN IN THE MIDDLE OF A PVP PLOT
         self.CTRL_REG &= 0b1101
         self.CTRL_REG |= (resetn << 1)
         
     def start_pvp(self):
+        """Start running a pvp plot"""
         self.CTRL_REG |= 0b1
         
-    def end_pvp(self):
+    def pause_pvp(self):
+        """Stop running a pvp plot but do not reset"""
         self.CTRL_REG &= 0b1110
+        
+    def end_pvp(self):
+        """Stop running a pvp plot and reset"""
+        self.CTRL_REG &= 0b1110
+        self.set_reset(1)
+        self.set_reset(0)
         
     # regular registers
             
     def set_dwell_cycles(self, dwell_cycles = 38400):
+        """Set number of clock cycles in between each step"""
         self.check_lock("Dwell cycles")
         if (dwell_cycles < 1250):
             raise ValueError("Dwell cycles must be at least 1250 so that all SPI messages can send")
         self.DWELL_CYCLES_REG = dwell_cycles
         
     def set_readout_cycles(self, cycles_till = 400):
-        '''sets readout cycles'''
+        """Set number of cycles during which the measurement may be read out"""
         self.check_lock("Readout cycles")
         self.CYCLES_TILL_READOUT = cycles_till
     
         
     def set_pvp_width(self, pvp_width = 256): #this default value is so if someone accidentally runs the method without a argument, the new value is just the default reset value
-        '''sets the width in pixels of a pvp'''
+        """Set the width in pixels of a pvp"""
         self.check_lock("Pvp width")
         self.PVP_WIDTH_REG = pvp_width
         
     def set_num_dims(self, num_dims = 0):
-        '''sets the number of dacs looped through in the pvp plot'''
+        """Set the number of groups looped through in the pvp plot"""
         self.check_lock("Number of dimensions")
         self.NUM_DIMS_REG = num_dims
                 
     def set_mode(self, m = 0):
+        """Set operation mode of the pvp gen block"""
         self.check_lock("Mode")
         if (m < 0 or m > 3):
             raise ValueError("Mode must be 0b00, 0b01, 0b10, or 0b11.")
@@ -220,6 +246,7 @@ class AxiPvpGen(SocIp):
     ## Compound methods
             
     def report_settings(self):
+        """Report all pvp gen registers' current value"""
         print("Start of DAC 0: ", hex(self.START_VAL_0_REG))
         print("Start of DAC 1: ", hex(self.START_VAL_1_REG))
         print("Start of DAC 2: ", hex(self.START_VAL_2_REG))
@@ -243,7 +270,7 @@ class AxiPvpGen(SocIp):
        
         
     def send_arbitrary_SPI(self, demux_int = 0b00000, reg = 0b0000, data_int = 0x00000):
-        '''Lets the user specify an arbitrary dac (demux_int) and send it an arbitrary 24 bit message (data_int)
+        '''Allow the user to specify an arbitrary dac (demux_int) and send it an arbitrary 24 bit message (data_int)
            Raises the done flag when finished and cannot be run again until pvp trigger reg is cleared'''
         
         self.check_lock("Arbitrary spi")
@@ -295,9 +322,9 @@ class AxiPvpGen(SocIp):
         self.set_demux("2", demux2)
         self.set_demux("3", demux3)
 
-        set_DAC(demux0, startval0)
-        set_DAC(demux1, startval1)
-        set_DAC(demux2, startval2)
-        set_DAC(demux3, startval3)
+        #set_DAC(demux0, startval0)
+        #set_DAC(demux1, startval1)
+        #set_DAC(demux2, startval2)
+        #set_DAC(demux3, startval3)
 
         self.set_mode(3)
