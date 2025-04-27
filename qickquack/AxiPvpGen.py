@@ -1,4 +1,5 @@
 from qick import SocIp
+from .DACs import volt2reg
 import time
 
 class AxiPvpGen(SocIp):
@@ -34,6 +35,7 @@ class AxiPvpGen(SocIp):
     # CYCLES_TILL_READOUT_REG = 16 bit
     # PVP_WIDTH_REG: 10 bit
     # NUM_DIMS_REG: 3 bit
+    # TRIG_SRC_REG: 1 bit
     
     
     bindto = ['user.org:user:axi_pvp_gen_v7:4.0']
@@ -70,7 +72,9 @@ class AxiPvpGen(SocIp):
             'DWELL_CYCLES_REG': 19,
             'CYCLES_TILL_READOUT_REG': 20,
             'PVP_WIDTH_REG': 21,
-            'NUM_DIMS_REG': 22
+            'NUM_DIMS_REG': 22,
+            
+            'TRIG_SRC_REG': 23
             
         }
         
@@ -104,14 +108,11 @@ class AxiPvpGen(SocIp):
         self.DWELL_CYCLES_REG = 38400 # at board speed of 384 MHz, 38400 dwell cycles is 100 us
         self.CYCLES_TILL_READOUT = 10
         self.PVP_WIDTH_REG = 256
-        self.NUM_DIMS_REG = 0 
+        self.NUM_DIMS_REG = 0
+        
+        self.TRIG_SRC_REG = 0 #default is 0 for trigger coming from qick, set for 1 for triggering manually for tests
         
         
-    # useful dictionaries
-    start_regs = {'0': 'START_VAL_0_REG', '1': 'START_VAL_1_REG', '2': 'START_VAL_2_REG', '3': 'START_VAL_3_REG'}
-    step_size_regs = {'0': 'STEP_SIZE_0_REG', '1': 'STEP_SIZE_1_REG', '2': 'STEP_SIZE_2_REG', '3': 'STEP_SIZE_3_REG'}
-    demux_regs = {'0': 'DEMUX_0_REG', '1': 'DEMUX_1_REG', '2': 'DEMUX_2_REG', '3': 'DEMUX_3_REG'}
-    group_regs = {'0': 'DAC_0_GROUP_REG', '1': 'DAC_1_GROUP_REG', '2': 'DAC_2_GROUP_REG', '3': 'DAC_3_GROUP_REG'}
 
     # ################################
     # Methods
@@ -197,17 +198,20 @@ class AxiPvpGen(SocIp):
         
     def start_pvp(self):
         """Start running a pvp plot"""
-        self.CTRL_REG |= 0b1
+        if self.TRIG_SRC_REG == 1: #if in manual control mode
+            self.CTRL_REG |= 0b1
         
     def pause_pvp(self):
-        """Stop running a pvp plot but do not reset"""
-        self.CTRL_REG &= 0b1110
+        """Pause running a pvp plot but do not reset"""
+        if self.TRIG_SRC_REG == 1:
+            self.CTRL_REG &= 0b1110
         
     def end_pvp(self):
         """Stop running a pvp plot and reset"""
-        self.CTRL_REG &= 0b1110
-        self.set_reset(1)
-        self.set_reset(0)
+        if self.TRIG_SRC_REG == 1:
+            self.CTRL_REG &= 0b1110
+            self.set_reset(1) #
+            self.set_reset(0)
         
     # regular registers
             
@@ -241,6 +245,14 @@ class AxiPvpGen(SocIp):
             raise ValueError("Mode must be 0b00, 0b01, 0b10, or 0b11.")
         self.MODE_REG = m
         
+    def set_trigger_source(self, src = 'qick'):
+        if src == 'qick':
+            self.TRIG_SRC_REG = 0
+        elif src == 'user':
+            self.TRIG_SRC_REG = 1
+        else:
+            raise ValueError("Trigger source must be either 'qick' or 'user'")
+        
     # we don't ever just set the config reg so it's not in the simple setters- see next section
     
     ## Compound methods
@@ -267,6 +279,7 @@ class AxiPvpGen(SocIp):
         print("Cycles till Trigger AWGs: ", hex(self.CYCLES_TILL_READOUT))
         print("Size of PVP plot (square): ", hex(self.PVP_WIDTH_REG))
         print("Number of DACs Running: ", hex(self.NUM_DIMS_REG))
+        print("Trigger source: ", "user" if (self.TRIG_SRC_REG) else "qick_processor")
        
         
     def send_arbitrary_SPI(self, demux_int = 0b00000, reg = 0b0000, data_int = 0x00000):
@@ -283,48 +296,23 @@ class AxiPvpGen(SocIp):
         time.sleep(0.1)
         self.CONFIG_REG = 0
         
-    def initialize_pvp(self, **kwargs):
-        # TODO check that kwargs is doing what i think it should
+    def setup_pvp(self, cfg = {'startvals': [0,0,0,0],
+                              'stepsizes': [0,0,0,0],
+                              'demuxvals': [0,0,0,0],
+                                'groups': [0,1,2,3],
+                                 'mode': 0,
+                               'width': 16,
+                               'num_dims': 4
+                              }
+                 ):
         '''sets up EVERYTHING for a pvp plot
         assuming a user sets everything they want here, they should only need to run this + start_pvp()'''
         
-        startval0 = 1.0
-        startval1 = 2.0
-        startval2 = 0.0
-        startval3 = 0.0
-
-        self.set_start(axis = '0', start_val = volt2reg(startval0))
-        self.set_start(axis = '0', start_val = volt2reg(startval1))
-        self.set_start(axis = '0', start_val = volt2reg(startval2))
-        self.set_start(axis = '0', start_val = volt2reg(startval3))
-
-        step = volt2reg(0.2)
-        self.set_step_size(axis = '0', step_size = step)
-
-        NUM_DIMS = 2
-        self.set_num_dims(NUM_DIMS)
-
-        PVP_WIDTH = 4
-        self.set_pvp_width(PVP_WIDTH)
-
-        DWELL_CYCLES = 5000
-        self.set_dwell_cycles(DWELL_CYCLES)
-
-        CYCLES_TILL_READOUT = 10
-        self.set_readout_cycles(CYCLES_TILL_READOUT)
-
-        demux0 = 0b010000
-        demux1 = 0b010011
-        demux2 = 0b000111
-        demux3 = 0b001100
-        self.set_demux("0", demux0)
-        self.set_demux("1", demux1)
-        self.set_demux("2", demux2)
-        self.set_demux("3", demux3)
-
-        #set_DAC(demux0, startval0)
-        #set_DAC(demux1, startval1)
-        #set_DAC(demux2, startval2)
-        #set_DAC(demux3, startval3)
-
-        self.set_mode(3)
+        for dac in range (len(cfg['startvals'])):
+            self.set_start(axis = str(dac), start_val = volt2reg(cfg['startvals'][dac]))
+            self.set_step_size(axis = str(dac), step_size = volt2reg(cfg['stepsizes'][dac]))
+            self.set_demux(axis = str(dac), demux = cfg['demuxvals'][dac])
+            self.set_group(axis = str(dac), group = cfg['groups'][dac])
+        self.set_mode(cfg['mode'])
+        self.set_pvp_width(cfg['width'])
+        self.set_num_dims(cfg['num_dims'])
