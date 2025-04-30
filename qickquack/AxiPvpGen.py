@@ -1,5 +1,5 @@
 from qick import SocIp
-from .DACs import volt2reg
+from .DAC import volt2reg
 import time
 
 class AxiPvpGen(SocIp):
@@ -74,7 +74,7 @@ class AxiPvpGen(SocIp):
             'PVP_WIDTH_REG': 21,
             'NUM_DIMS_REG': 22,
             
-            'TRIG_SRC_REG': 23
+            'USER_TRIGGER_REG': 23
             
         }
         
@@ -101,7 +101,7 @@ class AxiPvpGen(SocIp):
         self.DAC_3_GROUP_REG = 3
         
         
-        self.CTRL_REG = 14
+        self.CTRL_REG = 14 # the last bit of this reg is default is 0 for trigger coming from qick, set for 1 for user triggering (manually) for tests
         self.MODE_REG = 0
         self.CONFIG_REG = 0
         
@@ -110,7 +110,7 @@ class AxiPvpGen(SocIp):
         self.PVP_WIDTH_REG = 256
         self.NUM_DIMS_REG = 0
         
-        self.TRIG_SRC_REG = 0 #default is 0 for trigger coming from qick, set for 1 for triggering manually for tests
+        self.USER_TRIGGER_REG = 0 #if we're in user mode, a rising edge here means go to the next step
         
         
 
@@ -143,18 +143,18 @@ class AxiPvpGen(SocIp):
         '''method to set start val 
             (note that we want a method for this because we don't want to worry about registers outside this class)'''
         start_regs = {'0': 'START_VAL_0_REG', '1': 'START_VAL_1_REG', '2': 'START_VAL_2_REG', '3': 'START_VAL_3_REG'}
-        self.check_lock("Start values")
+        #self.check_lock("Start values")
         self.set_any_axis(axis = axis, axis_reg_dict = start_regs, val = start_val)
     
     def set_step_size(self, axis = '', step_size = 0):
         '''sets size of step (in Volts)'''
         step_size_regs = {'0': 'STEP_SIZE_0_REG', '1': 'STEP_SIZE_1_REG', '2': 'STEP_SIZE_2_REG', '3': 'STEP_SIZE_3_REG'}
-        self.check_lock("step size")
+        #self.check_lock("step size")
         self.set_any_axis(axis = axis, axis_reg_dict = step_size_regs, val = step_size)
             
     def set_demux(self, axis = '', demux = 0):
         """Set demux value for a given axis"""
-        self.check_lock("Demux values")
+        #self.check_lock("Demux values")
         demux_regs = {'0': 'DEMUX_0_REG', '1': 'DEMUX_1_REG', '2': 'DEMUX_2_REG', '3': 'DEMUX_3_REG'}
         
         #note to self: do we specify demux value or ask for board num and dac num?
@@ -166,7 +166,7 @@ class AxiPvpGen(SocIp):
     def set_group(self, axis = '', group = 0):
         '''Set with which group a particular DAC should update'''
         group_regs = {'0': 'DAC_0_GROUP_REG', '1': 'DAC_1_GROUP_REG', '2': 'DAC_2_GROUP_REG', '3': 'DAC_3_GROUP_REG'}
-        self.check_lock("groups")
+        #self.check_lock("groups")
         self.set_any_axis(axis = axis, axis_reg_dict = group_regs, val = group)
         
         
@@ -195,61 +195,67 @@ class AxiPvpGen(SocIp):
         #WARNING THIS WILL  NOT STOP YOU FROM RESETTING EVEN IN THE MIDDLE OF A PVP PLOT
         self.CTRL_REG &= 0b1101
         self.CTRL_REG |= (resetn << 1)
+
+    def set_user_trigger(self, user_trig=0):
+        """Set the trigger that will be read when the user is in control of triggering the pvp """
+        self.TRIGGER_USER_REG &= 0
+        self.TRIGGER_USER_REG |= user_trig
         
-    def start_pvp(self):
-        """Start running a pvp plot"""
-        if self.TRIG_SRC_REG == 1: #if in manual control mode
-            self.CTRL_REG |= 0b1
+    # def start_pvp(self):
+    #     """Start running a pvp plot"""
+    #     if self.TRIG_SRC_REG == 1: #if in manual control mode
+    #         self.CTRL_REG |= 0b1
         
-    def pause_pvp(self):
-        """Pause running a pvp plot but do not reset"""
-        if self.TRIG_SRC_REG == 1:
-            self.CTRL_REG &= 0b1110
+    # def pause_pvp(self):
+    #     """Pause running a pvp plot but do not reset"""
+    #     if self.TRIG_SRC_REG == 1:
+    #         self.CTRL_REG &= 0b1110
         
-    def end_pvp(self):
-        """Stop running a pvp plot and reset"""
-        if self.TRIG_SRC_REG == 1:
-            self.CTRL_REG &= 0b1110
-            self.set_reset(1) #
-            self.set_reset(0)
+    # def end_pvp(self):
+    #     """Stop running a pvp plot and reset"""
+    #     if self.TRIG_SRC_REG == 1:
+    #         self.CTRL_REG &= 0b1110
+    #         self.set_reset(1) #
+    #         self.set_reset(0)
+
         
     # regular registers
             
     def set_dwell_cycles(self, dwell_cycles = 38400):
         """Set number of clock cycles in between each step"""
-        self.check_lock("Dwell cycles")
+        #self.check_lock("Dwell cycles")
         if (dwell_cycles < 1250):
             raise ValueError("Dwell cycles must be at least 1250 so that all SPI messages can send")
         self.DWELL_CYCLES_REG = dwell_cycles
         
     def set_readout_cycles(self, cycles_till = 400):
         """Set number of cycles during which the measurement may be read out"""
-        self.check_lock("Readout cycles")
+        #self.check_lock("Readout cycles")
         self.CYCLES_TILL_READOUT = cycles_till
     
         
     def set_pvp_width(self, pvp_width = 256): #this default value is so if someone accidentally runs the method without a argument, the new value is just the default reset value
         """Set the width in pixels of a pvp"""
-        self.check_lock("Pvp width")
+        #self.check_lock("Pvp width")
         self.PVP_WIDTH_REG = pvp_width
         
     def set_num_dims(self, num_dims = 0):
         """Set the number of groups looped through in the pvp plot"""
-        self.check_lock("Number of dimensions")
+        #self.check_lock("Number of dimensions")
         self.NUM_DIMS_REG = num_dims
                 
     def set_mode(self, m = 0):
         """Set operation mode of the pvp gen block"""
-        self.check_lock("Mode")
+        #self.check_lock("Mode")
         if (m < 0 or m > 3):
             raise ValueError("Mode must be 0b00, 0b01, 0b10, or 0b11.")
         self.MODE_REG = m
         
     def set_trigger_source(self, src = 'qick'):
         if src == 'qick':
-            self.TRIG_SRC_REG = 0
+            self.CTRL_REG &= 0b1110 #set to 0
         elif src == 'user':
-            self.TRIG_SRC_REG = 1
+            self.CTRL_REG |= 0b1 #set to 1
         else:
             raise ValueError("Trigger source must be either 'qick' or 'user'")
         
@@ -282,7 +288,7 @@ class AxiPvpGen(SocIp):
         print("Trigger source: ", "user" if (self.TRIG_SRC_REG) else "qick_processor")
        
         
-    def send_arbitrary_SPI(self, demux_int = 0b00000, reg = 0b0000, data_int = 0x00000):
+    def send_arbitrary_SPI(self, demux_int = 0b00000, reg = 0b0000, data_int = 0x00000, debug = 0):
         '''Allow the user to specify an arbitrary dac (demux_int) and send it an arbitrary 24 bit message (data_int)
            Raises the done flag when finished and cannot be run again until pvp trigger reg is cleared'''
         
@@ -291,7 +297,8 @@ class AxiPvpGen(SocIp):
         demux_shift = demux_int << 24
         reg_shift = reg << 20
         out = demux_shift + reg_shift + data_int
-        print("Writing config reg to " + str(bin(out)))
+        if debug:
+            print("Writing config reg to " + str(bin(out)))
         self.CONFIG_REG = out
         time.sleep(0.1)
         self.CONFIG_REG = 0
@@ -316,3 +323,15 @@ class AxiPvpGen(SocIp):
         self.set_mode(cfg['mode'])
         self.set_pvp_width(cfg['width'])
         self.set_num_dims(cfg['num_dims'])
+
+    def run_pvp_demo(self):
+        """Create the correct number of rising edges to sweep out an entire pvp plot, if in user trigger mode"""
+        for i in range ((self.PVP_WIDTH_REG)**(self.NUM_DIMS_REG)):
+            self.one_pvp_step()
+            
+    def one_pvp_step(self):
+        """Create one rising edge for the trigger to read out, if in user trigger mode"""
+        self.set_user_trigger(1)
+        time.sleep(0.01) # this is an arbitrary testing value, but we read the edge so we gotta flip back and forth 
+        self.set_user_trigger(0)
+        time.sleep(0.05)
