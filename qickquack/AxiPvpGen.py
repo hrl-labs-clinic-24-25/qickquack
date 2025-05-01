@@ -170,36 +170,51 @@ class AxiPvpGen(SocIp):
         self.set_any_axis(axis = axis, axis_reg_dict = group_regs, val = group)
         
         
-    #the next five are ctrl reg manipulating methods
+    #the next four are ctrl reg manipulating methods
     
-    def set_ldac(self, ldac = 1):
+    #CTRL_REG[3]
+    def set_clr(self, clr = 1):
+        """Clear all DACs via CLRN pin, if in mode 3"""
+        #WARNING THIS WILL  NOT STOP YOU FROM CLEARING EVEN IN THE MIDDLE OF A PVP PLOT
+        if (self.MODE_REG == 3):
+            self.CTRL_REG &= 0b1011
+            self.CTRL_REG |= (clr << 2)
+        else:
+            print("wrong mode (need to be in mode 3 to change clrn manually)")
+
+    # CTRL_REG[2]
+    def set_reset(self, resetn = 1):
+        """Reset all DACs via RSTN pin, if in mode 3"""
+        #WARNING THIS WILL  NOT STOP YOU FROM RESETTING EVEN IN THE MIDDLE OF A PVP PLOT
+        if (self.MODE_REG == 3):
+            self.CTRL_REG &= 0b1101
+            self.CTRL_REG |= (resetn << 1)
+        else:
+            print("wrong mode (need to be in mode 3 to change resetn manually)")
+
+    # CTRL_REG[1] 
+    def set_ldac(self, ldac = 1, debug = 0):
         """Toggle the value of the LDAC pin, if in mode 3"""
         #check if mode allows for manual control
         if (self.MODE_REG == 3):
             #clear bit and set it
             self.CTRL_REG &= 0b0111
-            print(self.CTRL_REG)
             self.CTRL_REG |= (ldac << 3)
-            print(self.CTRL_REG)
+            if debug:
+                print("ctrl reg: ", self.CTRL_REG)
         else:
             print("wrong mode (need to be in mode 3 to change ldac manually)")
-            
-    def set_clr(self, clr = 1):
-        """Clear all DACs via CLRN pin"""
-        #WARNING THIS WILL  NOT STOP YOU FROM CLEARING EVEN IN THE MIDDLE OF A PVP PLOT
-        self.CTRL_REG &= 0b1011
-        self.CTRL_REG |= (clr << 2)
-        
-    def set_reset(self, resetn = 1):
-        """Reset all DACs via RSTN pin"""
-        #WARNING THIS WILL  NOT STOP YOU FROM RESETTING EVEN IN THE MIDDLE OF A PVP PLOT
-        self.CTRL_REG &= 0b1101
-        self.CTRL_REG |= (resetn << 1)
 
-    def set_user_trigger(self, user_trig=0):
-        """Set the trigger that will be read when the user is in control of triggering the pvp """
-        self.TRIGGER_USER_REG &= 0
-        self.TRIGGER_USER_REG |= user_trig
+    # CTRL[0]
+    def set_trigger_source(self, src = 'qick'):
+        if src == 'qick':
+            self.CTRL_REG &= 0b1110 #set to 0
+        elif src == 'user':
+            self.CTRL_REG |= 0b1 #set to 1
+        else:
+            raise ValueError("Trigger source must be either 'qick' or 'user'")
+
+ 
         
     # def start_pvp(self):
     #     """Start running a pvp plot"""
@@ -251,14 +266,11 @@ class AxiPvpGen(SocIp):
             raise ValueError("Mode must be 0b00, 0b01, 0b10, or 0b11.")
         self.MODE_REG = m
         
-    def set_trigger_source(self, src = 'qick'):
-        if src == 'qick':
-            self.CTRL_REG &= 0b1110 #set to 0
-        elif src == 'user':
-            self.CTRL_REG |= 0b1 #set to 1
-        else:
-            raise ValueError("Trigger source must be either 'qick' or 'user'")
-        
+    def set_user_trigger(self, user_trig=0):
+        """Set the user's trigger (only read if the user is in control of triggering the pvp) """
+        self.USER_TRIGGER_REG &= 0
+        self.USER_TRIGGER_REG |= user_trig
+    
     # we don't ever just set the config reg so it's not in the simple setters- see next section
     
     ## Compound methods
@@ -292,7 +304,7 @@ class AxiPvpGen(SocIp):
         '''Allow the user to specify an arbitrary dac (demux_int) and send it an arbitrary 24 bit message (data_int)
            Raises the done flag when finished and cannot be run again until pvp trigger reg is cleared'''
         
-        self.check_lock("Arbitrary spi")
+        #self.check_lock("Arbitrary spi")
         
         demux_shift = demux_int << 24
         reg_shift = reg << 20
